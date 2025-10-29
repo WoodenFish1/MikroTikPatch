@@ -2,4 +2,15 @@ __pycache__/
 .vscode/
 venv/
 app/
-test_*.py
+test_*.py# Build artifacts
+*.iso
+*.npk
+*.sfs
+*.zip
+*-patched.*
+gps-original.npk
+all_packages/
+all_packages_iso/
+busybox/
+keygen/
+CHANGELOG
