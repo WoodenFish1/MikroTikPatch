@@ -254,10 +254,27 @@ jobs:
       if: steps.get_latest.outputs.has_new_version == 'true' && matrix.arch == 'x86'
       run: |
         echo $NEWEST > latest7.txt
+        
+        # 添加编译产物到 .gitignore（如果还没有）
+        cat >> .gitignore << 'GITIGNORE_EOF'
+        # Build artifacts
+        *.iso
+        *.npk
+        *.sfs
+        *.zip
+        *-patched.*
+        gps-original.npk
+        all_packages/
+        all_packages_iso/
+        busybox/
+        keygen/
+        CHANGELOG
+        GITIGNORE_EOF
+        
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git add latest7.txt
-        git commit -m "Update to RouterOS $LATEST_VERSION"
+        git add latest7.txt .gitignore
+        git diff --quiet && git diff --staged --quiet || git commit -m "Update to RouterOS $LATEST_VERSION"
         git push
 
     # ========== GitHub Release ==========
