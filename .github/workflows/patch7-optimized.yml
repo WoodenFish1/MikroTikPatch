@@ -37,41 +37,24 @@ jobs:
         sudo apt-get install -y mkisofs xorriso qemu-utils extlinux --no-install-recommends
         sudo pip install -r requirements.txt
 
-    # ========== 下载 busybox 和 keygen ==========
+    # ========== 下载 busybox 和 keygen（仅 x86）==========
     - name: Download busybox and keygen
+      if: matrix.arch == 'x86'
       run: |
         wget -nv -O busybox.tar ${{ env.LOADER_URL }}
         tar -xf busybox.tar
         rm busybox.tar
 
-    # ========== 创建 option 和 python3 包 ==========
+    # ========== 创建 option 和 python3 包（仅 x86）==========
     - name: Create option package
+      if: matrix.arch == 'x86'
       run: |
         sudo mkdir -p ./option-root/bin/
-        
-        if [ "${{ matrix.arch }}" == "x86" ]; then
-          sudo cp busybox/busybox_x86 ./option-root/bin/busybox
-          sudo cp keygen/keygen_x86 ./option-root/bin/keygen
-        elif [ "${{ matrix.arch }}" == "arm64" ]; then
-          sudo cp busybox/busybox_aarch64 ./option-root/bin/busybox
-          sudo cp keygen/keygen_aarch64 ./option-root/bin/keygen
-        elif [ "${{ matrix.arch }}" == "arm" ]; then
-          sudo cp busybox/busybox_arm ./option-root/bin/busybox
-          sudo cp keygen/keygen_arm ./option-root/bin/keygen
-        elif [ "${{ matrix.arch }}" == "mipsbe" ]; then
-          sudo cp busybox/busybox_mips ./option-root/bin/busybox
-          sudo cp keygen/keygen_mips ./option-root/bin/keygen
-        elif [ "${{ matrix.arch }}" == "mmips" ] || [ "${{ matrix.arch }}" == "smips" ]; then
-          sudo cp busybox/busybox_mipsel ./option-root/bin/busybox
-          sudo cp keygen/keygen_mipsel ./option-root/bin/keygen
-        elif [ "${{ matrix.arch }}" == "ppc" ]; then
-          sudo cp busybox/busybox_ppc ./option-root/bin/busybox
-          sudo cp keygen/keygen_ppc ./option-root/bin/keygen
-        fi
-        
+        sudo cp busybox/busybox_x86 ./option-root/bin/busybox
+        sudo cp keygen/keygen_x86 ./option-root/bin/keygen
         sudo chmod +x ./option-root/bin/busybox ./option-root/bin/keygen
         
-        # 创建 busybox 符号链接（使用 x86 busybox 获取命令列表）
+        # 创建 busybox 符号链接
         COMMANDS=$(./busybox/busybox_x86 --list)
         for cmd in $COMMANDS; do
             sudo ln -sf /pckg/option/bin/busybox ./option-root/bin/$cmd
@@ -81,19 +64,9 @@ jobs:
         sudo rm -rf option-root
 
     - name: Create python3 package
+      if: matrix.arch == 'x86'
       run: |
-        if [ "${{ matrix.arch }}" == "x86" ]; then
-          URL="https://github.com/indygreg/python-build-standalone/releases/download/20250708/cpython-3.11.13+20250708-x86_64-unknown-linux-musl-install_only_stripped.tar.gz"
-        elif [ "${{ matrix.arch }}" == "arm64" ]; then
-          URL="https://github.com/indygreg/python-build-standalone/releases/download/20250708/cpython-3.11.13+20250708-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz"
-        elif [ "${{ matrix.arch }}" == "arm" ]; then
-          URL="https://github.com/indygreg/python-build-standalone/releases/download/20250708/cpython-3.11.13+20250708-armv7-unknown-linux-gnueabi-install_only_stripped.tar.gz"
-        elif [ "${{ matrix.arch }}" == "mipsbe" ] || [ "${{ matrix.arch }}" == "mmips" ] || [ "${{ matrix.arch }}" == "smips" ] || [ "${{ matrix.arch }}" == "ppc" ]; then
-          echo "Python3 not available for ${{ matrix.arch }}, skipping..."
-          touch python3.sfs.skip
-          exit 0
-        fi
-        
+        URL="https://github.com/indygreg/python-build-standalone/releases/download/20250708/cpython-3.11.13+20250708-x86_64-unknown-linux-musl-install_only_stripped.tar.gz"
         sudo wget -O cpython.tar.gz -nv "$URL"
         sudo tar -xf cpython.tar.gz
         sudo rm cpython.tar.gz ./python/include ./python/share -rf
@@ -161,15 +134,17 @@ jobs:
         sudo umount iso/
         sudo rm -rf iso/
         
-        # ✅ 先创建 option 和 python3（在 patch 之前，使用原始 gps）
-        if [ -f "option.sfs" ]; then
-          sudo -E python3 npk.py create new_iso/gps-$LATEST_VERSION$ARCH.npk \
-            new_iso/option-$LATEST_VERSION$ARCH.npk option ./option.sfs -desc="BusyBox and keygen"
-        fi
-        
-        if [ -f "python3.sfs" ] && [ ! -f "python3.sfs.skip" ]; then
-          sudo -E python3 npk.py create new_iso/gps-$LATEST_VERSION$ARCH.npk \
-            new_iso/python3-$LATEST_VERSION$ARCH.npk python3 ./python3.sfs -desc="Python 3.11.13"
+        # ✅ 仅 x86：先创建 option 和 python3（在 patch 之前，使用原始 gps）
+        if [ "${{ matrix.arch }}" == "x86" ]; then
+          if [ -f "option.sfs" ]; then
+            sudo -E python3 npk.py create new_iso/gps-$LATEST_VERSION$ARCH.npk \
+              new_iso/option-$LATEST_VERSION$ARCH.npk option ./option.sfs -desc="BusyBox and keygen"
+          fi
+          
+          if [ -f "python3.sfs" ]; then
+            sudo -E python3 npk.py create new_iso/gps-$LATEST_VERSION$ARCH.npk \
+              new_iso/python3-$LATEST_VERSION$ARCH.npk python3 ./python3.sfs -desc="Python 3.11.13"
+          fi
         fi
         
         # ✅ 统一 Patch 所有 NPK（官方 + option + python3）
@@ -398,19 +373,6 @@ jobs:
         sudo unzip all_packages$ARCH-$LATEST_VERSION.zip -d all_packages$ARCH-$LATEST_VERSION/
         sudo cp routeros-$LATEST_VERSION$ARCH.npk routeros-$LATEST_VERSION$ARCH-patched.npk
         sudo -E python3 patch.py npk routeros-$LATEST_VERSION$ARCH-patched.npk
-        
-        # ✅ 先创建 option 和 python3（在 sign 之前，使用原始 gps）
-        if [ -f "option.sfs" ]; then
-          sudo -E python3 npk.py create all_packages$ARCH-$LATEST_VERSION/gps-$LATEST_VERSION$ARCH.npk \
-            all_packages$ARCH-$LATEST_VERSION/option-$LATEST_VERSION$ARCH.npk option ./option.sfs -desc="BusyBox and keygen"
-        fi
-        
-        if [ -f "python3.sfs" ] && [ ! -f "python3.sfs.skip" ]; then
-          sudo -E python3 npk.py create all_packages$ARCH-$LATEST_VERSION/gps-$LATEST_VERSION$ARCH.npk \
-            all_packages$ARCH-$LATEST_VERSION/python3-$LATEST_VERSION$ARCH.npk python3 ./python3.sfs -desc="Python 3.11.13"
-        fi
-        
-        # ✅ 统一 Sign 所有包（官方 + option + python3）
         NPK_FILES=$(find all_packages$ARCH-$LATEST_VERSION/*.npk)
         for file in $NPK_FILES; do
           sudo -E python3 npk.py sign $file $file
