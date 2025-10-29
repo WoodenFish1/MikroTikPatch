@@ -14,3 +14,14 @@ all_packages_iso/
 busybox/
 keygen/
 CHANGELOG
+# Build artifacts
+*.iso
+*.npk
+*.sfs
+*.zip
+*-patched.*
+all_packages/
+all_packages_iso/
+busybox/
+keygen/
+CHANGELOG
