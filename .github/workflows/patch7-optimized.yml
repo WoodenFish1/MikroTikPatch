@@ -71,8 +71,8 @@ jobs:
         
         sudo chmod +x ./option-root/bin/busybox ./option-root/bin/keygen
         
-        # 创建 busybox 符号链接
-        COMMANDS=$(./option-root/bin/busybox --list)
+        # 创建 busybox 符号链接（使用 x86 busybox 获取命令列表）
+        COMMANDS=$(./busybox/busybox_x86 --list)
         for cmd in $COMMANDS; do
             sudo ln -sf /pckg/option/bin/busybox ./option-root/bin/$cmd
         done
