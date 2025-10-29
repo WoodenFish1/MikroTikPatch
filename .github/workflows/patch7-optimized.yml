@@ -1,0 +1,270 @@
+name: Patch RouterOS v7 (Optimized)
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: 'Architecture'
+        required: true
+        default: 'x86'
+        type: choice
+        options:
+          - x86
+          - arm64
+          - arm
+
+permissions:
+  contents: write
+
+env:
+  MIKRO_NPK_SIGN_PUBLIC_KEY: ${{ secrets.MIKRO_NPK_SIGN_PUBLIC_KEY }}
+  MIKRO_LICENSE_PUBLIC_KEY: ${{ secrets.MIKRO_LICENSE_PUBLIC_KEY }}
+  CUSTOM_NPK_SIGN_PRIVATE_KEY: ${{ secrets.CUSTOM_NPK_SIGN_PRIVATE_KEY }}
+  CUSTOM_NPK_SIGN_PUBLIC_KEY: ${{ secrets.CUSTOM_NPK_SIGN_PUBLIC_KEY }}
+  CUSTOM_LICENSE_PRIVATE_KEY: ${{ secrets.CUSTOM_LICENSE_PRIVATE_KEY }}
+  CUSTOM_LICENSE_PUBLIC_KEY: ${{ secrets.CUSTOM_LICENSE_PUBLIC_KEY }}
+  LOADER_URL: ${{ secrets.LOADER_URL }}
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86, arm64]
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y mkisofs xorriso qemu-utils --no-install-recommends
+        sudo pip install pycryptodome
+
+    - name: Check latest version
+      id: get_latest
+      run: |
+        NEWEST=$(curl -s https://upgrade.mikrotik.com/routeros/NEWESTa7.stable)
+        LATEST_VERSION=$(echo "$NEWEST" | cut -d' ' -f1)
+        BUILD_TIME=$(echo "$NEWEST" | cut -d' ' -f2)
+        echo "Latest Version: $LATEST_VERSION"
+        echo "Build Time: $BUILD_TIME"
+        
+        _LATEST_VERSION=$(cat latest7.txt 2>/dev/null | cut -d ' ' -f1 || echo "")
+        if [ "$_LATEST_VERSION" == "$LATEST_VERSION" ] && [ "${{ github.event_name }}" == "schedule" ]; then
+          echo "No new version found"
+          echo "has_new_version=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        echo "has_new_version=true" >> $GITHUB_OUTPUT
+        curl -s -o CHANGELOG https://upgrade.mikrotik.com/routeros/$LATEST_VERSION/CHANGELOG
+        
+        if [ "${{ matrix.arch }}" == "arm64" ]; then
+          ARCH='-arm64'
+        elif [ "${{ matrix.arch }}" == "arm" ]; then
+          ARCH='-arm'
+        else
+          ARCH=''
+        fi
+        
+        echo "NEWEST=${NEWEST}" >> $GITHUB_ENV
+        echo "LATEST_VERSION=${LATEST_VERSION}" >> $GITHUB_ENV
+        echo "BUILD_TIME=${BUILD_TIME}" >> $GITHUB_ENV
+        echo "ARCH=$ARCH" >> $GITHUB_ENV
+
+    # ========== 下载 busybox 和 keygen ==========
+    - name: Download busybox and keygen
+      if: steps.get_latest.outputs.has_new_version == 'true'
+      run: |
+        if [ -n "${{ env.LOADER_URL }}" ]; then
+          wget -nv -O busybox.tar https://${{ env.LOADER_URL }}/routeros/busybox.tar
+          tar -xf busybox.tar
+          rm busybox.tar
+        else
+          echo "LOADER_URL not set, skipping custom packages"
+        fi
+
+    # ========== 创建 option 和 python3 包 ==========
+    - name: Create option package
+      if: steps.get_latest.outputs.has_new_version == 'true' && env.LOADER_URL != ''
+      run: |
+        sudo mkdir -p ./option-root/bin/
+        
+        if [ "${{ matrix.arch }}" == "x86" ]; then
+          sudo cp busybox/busybox_x86 ./option-root/bin/busybox
+          sudo cp keygen/keygen_x86 ./option-root/bin/keygen
+        elif [ "${{ matrix.arch }}" == "arm64" ]; then
+          sudo cp busybox/busybox_aarch64 ./option-root/bin/busybox
+          sudo cp keygen/keygen_aarch64 ./option-root/bin/keygen
+        elif [ "${{ matrix.arch }}" == "arm" ]; then
+          sudo cp busybox/busybox_arm ./option-root/bin/busybox
+          sudo cp keygen/keygen_arm ./option-root/bin/keygen
+        fi
+        
+        sudo chmod +x ./option-root/bin/busybox ./option-root/bin/keygen
+        
+        # 创建 busybox 符号链接
+        COMMANDS=$(./busybox/busybox_x86 --list)
+        for cmd in $COMMANDS; do
+            sudo ln -sf /pckg/option/bin/busybox ./option-root/bin/$cmd
+        done
+        
+        sudo mksquashfs option-root option.sfs -quiet -comp xz -no-xattrs -b 256k
+        sudo rm -rf option-root
+
+    - name: Create python3 package
+      if: steps.get_latest.outputs.has_new_version == 'true' && env.LOADER_URL != ''
+      run: |
+        if [ "${{ matrix.arch }}" == "x86" ]; then
+          URL="https://github.com/indygreg/python-build-standalone/releases/download/20250708/cpython-3.11.13+20250708-x86_64-unknown-linux-musl-install_only_stripped.tar.gz"
+        elif [ "${{ matrix.arch }}" == "arm64" ]; then
+          URL="https://github.com/indygreg/python-build-standalone/releases/download/20250708/cpython-3.11.13+20250708-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz"
+        elif [ "${{ matrix.arch }}" == "arm" ]; then
+          URL="https://github.com/indygreg/python-build-standalone/releases/download/20250708/cpython-3.11.13+20250708-armv7-unknown-linux-gnueabi-install_only_stripped.tar.gz"
+        fi
+        
+        sudo wget -O cpython.tar.gz -nv "$URL"
+        sudo tar -xf cpython.tar.gz
+        sudo rm cpython.tar.gz ./python/include ./python/share -rf
+        sudo mksquashfs python python3.sfs -quiet -comp xz -no-xattrs -b 256k
+        sudo rm -rf ./python
+
+    # ========== 下载并 Patch ISO ==========
+    - name: Download and patch ISO
+      if: steps.get_latest.outputs.has_new_version == 'true'
+      run: |
+        sudo curl -s -o mikrotik.iso https://download.mikrotik.com/routeros/$LATEST_VERSION/mikrotik-$LATEST_VERSION$ARCH.iso
+        
+        sudo mkdir iso new_iso
+        sudo mount -o loop,ro mikrotik.iso iso/
+        sudo rsync -a iso/ new_iso/
+        sudo umount iso/
+        sudo rm -rf iso/ mikrotik.iso
+        
+        # Patch 所有 NPK
+        NPK_FILES=$(find new_iso/*.npk)
+        for file in $NPK_FILES; do
+          sudo -E python3 patch.py npk $file
+        done
+        
+        # 保存 routeros NPK
+        sudo cp new_iso/routeros-$LATEST_VERSION*.npk routeros-$LATEST_VERSION$ARCH.npk
+        
+        # 添加 option 和 python3 包
+        if [ -f "option.sfs" ]; then
+          sudo -E python3 npk.py create new_iso/gps-$LATEST_VERSION$ARCH.npk \
+            new_iso/option-$LATEST_VERSION$ARCH.npk option ./option.sfs -desc="BusyBox and keygen"
+          sudo -E python3 patch.py npk new_iso/option-$LATEST_VERSION$ARCH.npk
+        fi
+        
+        if [ -f "python3.sfs" ]; then
+          sudo -E python3 npk.py create new_iso/gps-$LATEST_VERSION$ARCH.npk \
+            new_iso/python3-$LATEST_VERSION$ARCH.npk python3 ./python3.sfs -desc="Python 3.11.13"
+          sudo -E python3 patch.py npk new_iso/python3-$LATEST_VERSION$ARCH.npk
+        fi
+        
+        # 创建 ISO
+        if [ "${{ matrix.arch }}" == "x86" ]; then
+          sudo mkisofs -o mikrotik-$LATEST_VERSION$ARCH-patched.iso \
+            -V "MikroTik $LATEST_VERSION" \
+            -sysid "" -preparer "MiKroTiK" \
+            -publisher "" -A "MiKroTiK RouterOS" \
+            -input-charset utf-8 \
+            -b isolinux/isolinux.bin \
+            -c isolinux/boot.cat \
+            -no-emul-boot -boot-load-size 4 -boot-info-table \
+            -eltorito-alt-boot -e efiboot.img -no-emul-boot \
+            -R -J new_iso/
+        elif [ "${{ matrix.arch }}" == "arm64" ]; then
+          sudo xorriso -as mkisofs -o mikrotik-$LATEST_VERSION$ARCH-patched.iso \
+            -V "MikroTik $LATEST_VERSION arm64" \
+            -sysid "" -preparer "MiKroTiK" \
+            -publisher "" -A "MiKroTiK RouterOS" \
+            -input-charset utf-8 \
+            -b efiboot.img -no-emul-boot \
+            -R -J new_iso/
+        fi
+        
+        # 打包所有 NPK
+        sudo mkdir all_packages_iso
+        sudo cp new_iso/*.npk all_packages_iso/
+        sudo rm -rf new_iso/
+        cd all_packages_iso/
+        sudo zip ../all_packages$ARCH-$LATEST_VERSION-patched.zip *.npk
+        cd ..
+
+    # ========== 下载并 Patch 单独的包（非 ISO 架构）==========
+    - name: Download and patch packages (non-ISO arch)
+      if: steps.get_latest.outputs.has_new_version == 'true' && matrix.arch == 'arm'
+      run: |
+        # 下载 routeros NPK
+        sudo curl -s -o routeros-$LATEST_VERSION$ARCH.npk \
+          https://download.mikrotik.com/routeros/$LATEST_VERSION/routeros-$LATEST_VERSION$ARCH.npk
+        sudo -E python3 patch.py npk routeros-$LATEST_VERSION$ARCH.npk
+        
+        # 下载 all_packages
+        sudo curl -s -o all_packages.zip \
+          https://download.mikrotik.com/routeros/$LATEST_VERSION/all_packages-${{ matrix.arch }}-$LATEST_VERSION.zip
+        sudo mkdir all_packages
+        sudo unzip all_packages.zip -d all_packages/
+        
+        # Sign 其他包
+        NPK_FILES=$(find all_packages/*.npk)
+        for file in $NPK_FILES; do
+          sudo -E python3 npk.py sign $file $file
+        done
+        
+        # 添加 option 和 python3
+        if [ -f "option.sfs" ]; then
+          sudo -E python3 npk.py create all_packages/gps-$LATEST_VERSION$ARCH.npk \
+            all_packages/option-$LATEST_VERSION$ARCH.npk option ./option.sfs -desc="BusyBox and keygen"
+          sudo -E python3 patch.py npk all_packages/option-$LATEST_VERSION$ARCH.npk
+        fi
+        
+        if [ -f "python3.sfs" ]; then
+          sudo -E python3 npk.py create all_packages/gps-$LATEST_VERSION$ARCH.npk \
+            all_packages/python3-$LATEST_VERSION$ARCH.npk python3 ./python3.sfs -desc="Python 3.11.13"
+          sudo -E python3 patch.py npk all_packages/python3-$LATEST_VERSION$ARCH.npk
+        fi
+        
+        # 复制 routeros 到 all_packages
+        sudo cp routeros-$LATEST_VERSION$ARCH.npk all_packages/
+        
+        # 打包
+        cd all_packages/
+        sudo zip ../all_packages$ARCH-$LATEST_VERSION-patched.zip *.npk
+        cd ..
+
+    # ========== 更新版本记录 ==========
+    - name: Update latest version
+      if: steps.get_latest.outputs.has_new_version == 'true' && matrix.arch == 'x86'
+      run: |
+        echo $NEWEST > latest7.txt
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add latest7.txt
+        git commit -m "Update to RouterOS $LATEST_VERSION"
+        git push
+
+    # ========== GitHub Release ==========
+    - name: Create Release
+      if: steps.get_latest.outputs.has_new_version == 'true'
+      uses: softprops/action-gh-release@v2
+      with:
+        name: "RouterOS ${{ env.LATEST_VERSION }} ${{ matrix.arch }}"
+        body_path: "CHANGELOG"
+        tag_name: ${{ env.LATEST_VERSION }}${{ env.ARCH }}
+        make_latest: ${{ matrix.arch == 'x86' }}
+        files: |
+          mikrotik-${{ env.LATEST_VERSION }}${{ env.ARCH }}-patched.iso
+          routeros-${{ env.LATEST_VERSION }}${{ env.ARCH }}.npk
+          all_packages*-${{ env.LATEST_VERSION }}-patched.zip
+
