@@ -139,7 +139,7 @@ jobs:
 
     # ========== 下载并 Patch ISO ==========
     - name: Download and patch ISO
-      if: steps.get_latest.outputs.has_new_version == 'true'
+      if: steps.get_latest.outputs.has_new_version == 'true' && (matrix.arch == 'x86' || matrix.arch == 'arm64')
       run: |
         sudo curl -s -o mikrotik.iso https://download.mikrotik.com/routeros/$LATEST_VERSION/mikrotik-$LATEST_VERSION$ARCH.iso
         
@@ -149,21 +149,18 @@ jobs:
         sudo umount iso/
         sudo rm -rf iso/ mikrotik.iso
         
-        # ✅ 先备份 gps 包（用于创建 option 和 python3）
-        sudo cp new_iso/gps-$LATEST_VERSION$ARCH.npk gps-original.npk
-        
-        # 创建 option 和 python3 包（使用未 patch 的 gps）
+        # ✅ 先创建 option 和 python3（在 patch 之前，使用原始 gps）
         if [ -f "option.sfs" ]; then
-          sudo -E python3 npk.py create gps-original.npk \
+          sudo -E python3 npk.py create new_iso/gps-$LATEST_VERSION$ARCH.npk \
             new_iso/option-$LATEST_VERSION$ARCH.npk option ./option.sfs -desc="BusyBox and keygen"
         fi
         
         if [ -f "python3.sfs" ]; then
-          sudo -E python3 npk.py create gps-original.npk \
+          sudo -E python3 npk.py create new_iso/gps-$LATEST_VERSION$ARCH.npk \
             new_iso/python3-$LATEST_VERSION$ARCH.npk python3 ./python3.sfs -desc="Python 3.11.13"
         fi
         
-        # Patch 所有 NPK（包括新创建的 option 和 python3）
+        # ✅ 统一 Patch 所有 NPK（官方 + option + python3）
         NPK_FILES=$(find new_iso/*.npk)
         for file in $NPK_FILES; do
           sudo -E python3 patch.py npk $file
@@ -217,28 +214,21 @@ jobs:
         sudo mkdir all_packages
         sudo unzip all_packages.zip -d all_packages/
         
-        # ✅ 备份 gps 包（用于创建 option 和 python3）
-        sudo cp all_packages/gps-$LATEST_VERSION$ARCH.npk gps-original.npk
-        
-        # 创建 option 和 python3 包（使用未 patch 的 gps）
+        # ✅ 先创建 option 和 python3（在 patch 之前，使用原始 gps）
         if [ -f "option.sfs" ]; then
-          sudo -E python3 npk.py create gps-original.npk \
+          sudo -E python3 npk.py create all_packages/gps-$LATEST_VERSION$ARCH.npk \
             all_packages/option-$LATEST_VERSION$ARCH.npk option ./option.sfs -desc="BusyBox and keygen"
         fi
         
         if [ -f "python3.sfs" ]; then
-          sudo -E python3 npk.py create gps-original.npk \
+          sudo -E python3 npk.py create all_packages/gps-$LATEST_VERSION$ARCH.npk \
             all_packages/python3-$LATEST_VERSION$ARCH.npk python3 ./python3.sfs -desc="Python 3.11.13"
         fi
         
-        # Sign 其他包 + Patch option/python3
+        # ✅ 统一 Sign 所有包（包括 option/python3）
         NPK_FILES=$(find all_packages/*.npk)
         for file in $NPK_FILES; do
-          if [[ "$file" == *"option"* ]] || [[ "$file" == *"python3"* ]]; then
-            sudo -E python3 patch.py npk $file  # option/python3 需要 patch
-          else
-            sudo -E python3 npk.py sign $file $file  # 其他包只需 sign
-          fi
+          sudo -E python3 npk.py sign $file $file
         done
         
         # 复制 routeros 到 all_packages
@@ -263,7 +253,6 @@ jobs:
         *.sfs
         *.zip
         *-patched.*
-        gps-original.npk
         all_packages/
         all_packages_iso/
         busybox/
