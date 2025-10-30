@@ -458,3 +458,24 @@ jobs:
           chr-${{ env.LATEST_VERSION }}${{ env.ARCH }}-patched.*.zip
           routeros-${{ env.LATEST_VERSION }}${{ env.ARCH }}-patched.npk
           all_packages*-${{ env.LATEST_VERSION }}-patched.zip
+
+    - name: Clean up caches after release
+      if: steps.get_latest.outputs.has_new_version == 'true'
+      run: |
+        echo "🗑️ Cleaning up caches for ${{ env.LATEST_VERSION }}..."
+        
+        # 删除当前版本的所有缓存
+        gh extension install actions/gh-actions-cache || true
+        
+        # 列出并删除相关缓存
+        echo "Deleting caches..."
+        gh actions-cache delete mikrotik-${{ env.LATEST_VERSION }}-${{ matrix.arch }} --confirm || echo "Cache not found: mikrotik"
+        gh actions-cache delete install-image-${{ env.LATEST_VERSION }}-${{ matrix.arch }} --confirm || echo "Cache not found: install-image"
+        gh actions-cache delete chr-${{ env.LATEST_VERSION }}-${{ matrix.arch }} --confirm || echo "Cache not found: chr"
+        gh actions-cache delete routeros-${{ env.LATEST_VERSION }}-${{ matrix.arch }} --confirm || echo "Cache not found: routeros"
+        gh actions-cache delete netinstall-${{ env.LATEST_VERSION }} --confirm || echo "Cache not found: netinstall"
+        gh actions-cache delete refind --confirm || echo "Cache not found: refind"
+        
+        echo "✅ Cache cleanup completed"
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
