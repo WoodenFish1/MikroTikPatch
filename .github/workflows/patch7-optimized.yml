@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [x86, arm, arm64, mipsbe, mmips, smips, ppc]
+        arch: [x86, arm64]
 
     steps:
     - name: Checkout
@@ -101,23 +101,13 @@ jobs:
         echo "LATEST_VERSION=${LATEST_VERSION}" >> $GITHUB_ENV
         if [ "${{ matrix.arch }}" == "x86" ]; then
           ARCH=''
-        elif [ "${{ matrix.arch }}" == "arm" ]; then
-          ARCH='-arm'
         elif [ "${{ matrix.arch }}" == "arm64" ]; then
           ARCH='-arm64'
-        elif [ "${{ matrix.arch }}" == "mipsbe" ]; then
-          ARCH='-mipsbe'
-        elif [ "${{ matrix.arch }}" == "mmips" ]; then
-          ARCH='-mmips'
-        elif [ "${{ matrix.arch }}" == "smips" ]; then
-          ARCH='-smips'
-        elif [ "${{ matrix.arch }}" == "ppc" ]; then
-          ARCH='-ppc'
         fi
         echo "ARCH=$ARCH" >> $GITHUB_ENV
 
     - name: Cache mikrotik-${{ env.LATEST_VERSION }}${{ env.ARCH }}.iso
-      if: steps.get_latest.outputs.has_new_version == 'true' && (matrix.arch == 'x86' || matrix.arch == 'arm64')
+      if: steps.get_latest.outputs.has_new_version == 'true'
       id: cache_mikrotik
       uses: actions/cache@v4
       with:
@@ -125,12 +115,12 @@ jobs:
         key: mikrotik-${{ env.LATEST_VERSION }}-${{ matrix.arch }}
 
     - name: Get mikrotik-${{ env.LATEST_VERSION }}${{ env.ARCH }}.iso
-      if: steps.get_latest.outputs.has_new_version == 'true' && steps.cache_mikrotik.outputs.cache-hit != 'true' && (matrix.arch == 'x86' || matrix.arch == 'arm64')
+      if: steps.get_latest.outputs.has_new_version == 'true' && steps.cache_mikrotik.outputs.cache-hit != 'true'
       run: |
         sudo curl -s -o mikrotik.iso https://download.mikrotik.com/routeros/$LATEST_VERSION/mikrotik-$LATEST_VERSION$ARCH.iso
 
     - name: Patch mikrotik-${{ env.LATEST_VERSION }}${{ env.ARCH }}.iso
-      if: steps.get_latest.outputs.has_new_version == 'true' && (matrix.arch == 'x86' || matrix.arch == 'arm64')
+      if: steps.get_latest.outputs.has_new_version == 'true'
       run: |
         sudo mkdir iso
         sudo mount -o loop,ro mikrotik.iso iso/
@@ -293,7 +283,7 @@ jobs:
         sudo rm install-image-$LATEST_VERSION$ARCH-patched.img
 
     - name: Cache chr-${{ env.LATEST_VERSION }}${{ env.ARCH }}.zip
-      if: steps.get_latest.outputs.has_new_version == 'true' && (matrix.arch == 'x86' || matrix.arch == 'arm64')
+      if: steps.get_latest.outputs.has_new_version == 'true'
       id: cache_chr_img
       uses: actions/cache@v4
       with:
@@ -301,12 +291,12 @@ jobs:
         key: chr-${{ env.LATEST_VERSION }}-${{ matrix.arch }}
 
     - name: Get chr-${{ env.LATEST_VERSION }}${{ env.ARCH }}.zip
-      if: steps.get_latest.outputs.has_new_version == 'true' && steps.cache_chr_img.outputs.cache-hit != 'true' && (matrix.arch == 'x86' || matrix.arch == 'arm64')
+      if: steps.get_latest.outputs.has_new_version == 'true' && steps.cache_chr_img.outputs.cache-hit != 'true'
       run: |
         sudo curl -s -o chr.img.zip https://download.mikrotik.com/routeros/$LATEST_VERSION/chr-$LATEST_VERSION$ARCH.img.zip
 
     - name: Patch chr-${{ env.LATEST_VERSION }}${{ env.ARCH }}.img
-      if: steps.get_latest.outputs.has_new_version == 'true' && (matrix.arch == 'x86' || matrix.arch == 'arm64')
+      if: steps.get_latest.outputs.has_new_version == 'true'
       run: |
         sudo unzip chr.img.zip
         sudo modprobe nbd
@@ -381,7 +371,7 @@ jobs:
         sudo tar -czvf netinstall-$LATEST_VERSION-patched.tar.gz netinstall-cli
 
     - name: Cache routeros-${{ env.LATEST_VERSION }}${{ env.ARCH }}.npk & all_packages${{ env.ARCH }}-${{ env.LATEST_VERSION }}.zip
-      if: steps.get_latest.outputs.has_new_version == 'true' && matrix.arch != 'x86'
+      if: steps.get_latest.outputs.has_new_version == 'true' && matrix.arch == 'arm64'
       id: cache_routeros_npk
       uses: actions/cache@v4
       with:
@@ -391,13 +381,13 @@ jobs:
         key: routeros-${{ env.LATEST_VERSION }}-${{ matrix.arch }}
 
     - name: Get routeros-${{ env.LATEST_VERSION }}${{ env.ARCH }}.npk & all_packages${{ env.ARCH }}-${{ env.LATEST_VERSION }}.zip
-      if: steps.get_latest.outputs.has_new_version == 'true' && steps.cache_routeros_npk.outputs.cache-hit != 'true' && matrix.arch != 'x86'
+      if: steps.get_latest.outputs.has_new_version == 'true' && steps.cache_routeros_npk.outputs.cache-hit != 'true' && matrix.arch == 'arm64'
       run: |
         sudo curl -s -o routeros-$LATEST_VERSION$ARCH.npk https://download.mikrotik.com/routeros/$LATEST_VERSION/routeros-$LATEST_VERSION$ARCH.npk
         sudo curl -s -o all_packages$ARCH-$LATEST_VERSION.zip https://download.mikrotik.com/routeros/$LATEST_VERSION/all_packages$ARCH-$LATEST_VERSION.zip
 
     - name: Patch routeros-${{ env.LATEST_VERSION }}${{ env.ARCH }}.npk & all_packages${{ env.ARCH }}-${{ env.LATEST_VERSION }}.zip
-      if: steps.get_latest.outputs.has_new_version == 'true' && matrix.arch != 'x86'
+      if: steps.get_latest.outputs.has_new_version == 'true' && matrix.arch == 'arm64'
       run: |
         sudo mkdir all_packages$ARCH-$LATEST_VERSION
         sudo unzip all_packages$ARCH-$LATEST_VERSION.zip -d all_packages$ARCH-$LATEST_VERSION/
