@@ -243,6 +243,17 @@ jobs:
         for file in $NPK_FILES; do
           sudo -E python3 patch.py npk $file
         done
+        
+        # ✅ 添加 option 和 python3 NPK 到 install-image（仅 x86）
+        if [ -f "new_iso/option-$LATEST_VERSION$ARCH.npk" ]; then
+          sudo cp new_iso/option-$LATEST_VERSION$ARCH.npk install-image/
+          echo "✓ Added option NPK to install-image"
+        fi
+        if [ -f "new_iso/python3-$LATEST_VERSION$ARCH.npk" ]; then
+          sudo cp new_iso/python3-$LATEST_VERSION$ARCH.npk install-image/
+          echo "✓ Added python3 NPK to install-image"
+        fi
+        
         sudo umount /dev/nbd0
         sudo qemu-nbd -d /dev/nbd0
         sudo rm -rf install-image/
