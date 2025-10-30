@@ -82,13 +82,19 @@ jobs:
         BUILD_TIME=$(echo "$NEWEST" | cut -d' ' -f2)
         echo Latest Version: $LATEST_VERSION
         echo Build Time: $BUILD_TIME
-        _LATEST_VERSION=$(cat latest7.txt | cut -d ' ' -f1)
-        if [ "$_LATEST_VERSION" == "$LATEST_VERSION" ]; then
+        _LATEST_VERSION=$(cat latest7.txt 2>/dev/null | cut -d ' ' -f1 || echo "")
+        
+        # 手动触发时始终编译和发布
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          echo "Manual trigger - will always build and release"
+          echo "has_new_version=true" >> $GITHUB_OUTPUT
+        elif [ "$_LATEST_VERSION" == "$LATEST_VERSION" ]; then
           echo "No new version found"
           echo "has_new_version=false" >> $GITHUB_OUTPUT
           exit 0
+        else
+          echo "has_new_version=true" >> $GITHUB_OUTPUT
         fi
-        echo "has_new_version=true" >> $GITHUB_OUTPUT
         curl -s -o CHANGELOG https://upgrade.mikrotik.com/routeros/$LATEST_VERSION/CHANGELOG
         cat CHANGELOG
         echo "NEWEST=${NEWEST}" >> $GITHUB_ENV
