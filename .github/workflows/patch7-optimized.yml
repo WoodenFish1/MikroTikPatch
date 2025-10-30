@@ -194,6 +194,19 @@ jobs:
                        new_iso/
         fi
         sudo rm -rf efiboot/
+        
+        # ✅ 在删除 new_iso 之前，先保存 option 和 python3 NPK（供 install-image 使用）
+        if [ "${{ matrix.arch }}" == "x86" ]; then
+          if [ -f "new_iso/option-$LATEST_VERSION$ARCH.npk" ]; then
+            sudo cp new_iso/option-$LATEST_VERSION$ARCH.npk ./option-$LATEST_VERSION$ARCH.npk
+            echo "✓ Saved option NPK for install-image"
+          fi
+          if [ -f "new_iso/python3-$LATEST_VERSION$ARCH.npk" ]; then
+            sudo cp new_iso/python3-$LATEST_VERSION$ARCH.npk ./python3-$LATEST_VERSION$ARCH.npk
+            echo "✓ Saved python3 NPK for install-image"
+          fi
+        fi
+        
         sudo mkdir all_packages_iso$ARCH-$LATEST_VERSION
         sudo cp new_iso/*.npk all_packages_iso$ARCH-$LATEST_VERSION/
         sudo rm -rf new_iso/
@@ -245,12 +258,12 @@ jobs:
         done
         
         # ✅ 添加 option 和 python3 NPK 到 install-image（仅 x86）
-        if [ -f "new_iso/option-$LATEST_VERSION$ARCH.npk" ]; then
-          sudo cp new_iso/option-$LATEST_VERSION$ARCH.npk install-image/
+        if [ -f "option-$LATEST_VERSION$ARCH.npk" ]; then
+          sudo cp option-$LATEST_VERSION$ARCH.npk install-image/
           echo "✓ Added option NPK to install-image"
         fi
-        if [ -f "new_iso/python3-$LATEST_VERSION$ARCH.npk" ]; then
-          sudo cp new_iso/python3-$LATEST_VERSION$ARCH.npk install-image/
+        if [ -f "python3-$LATEST_VERSION$ARCH.npk" ]; then
+          sudo cp python3-$LATEST_VERSION$ARCH.npk install-image/
           echo "✓ Added python3 NPK to install-image"
         fi
         
@@ -431,6 +444,8 @@ jobs:
         install-image/
         chr/
         refind-bin-*/
+        option-*
+        python3-*
         CHANGELOG
         LICENSE.txt
         GITIGNORE_EOF
